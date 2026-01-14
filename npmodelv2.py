@@ -45,11 +45,19 @@ MONTH_RANGES_COMBINED = get_month_ranges(DAYS_COMBINED)
 def simulate_sales_continuous(pure_new_list, trans_new_list, X, Y, days_config=DAYS_COMBINED, month_ranges=MONTH_RANGES_COMBINED):
     """
     通用连续模拟函数：支持12个月或24个月
+    修复：增加类型转换和边界安全检查
     """
     total_days = sum(days_config)
-    # 初始化每日销量数组
+    # 初始化每日销量数组 (多给200天缓冲)
     daily_big = np.zeros(total_days + 200)
     daily_small = np.zeros(total_days + 200)
+    
+    # 【修复1】获取数组的安全长度，用于边界检查
+    max_idx = len(daily_small)
+
+    # 【修复2】确保 X 和 Y 是纯数字 (Scalar)，防止 minimize 传入数组导致报错
+    real_X = X.item() if hasattr(X, 'item') else X
+    real_Y = Y.item() if hasattr(Y, 'item') else Y
 
     limit_months = len(pure_new_list)
 
@@ -66,21 +74,21 @@ def simulate_sales_continuous(pure_new_list, trans_new_list, X, Y, days_config=D
             entry_day = start_day_m + d
 
             # Day 0: 大支
-            if entry_day < total_days:
+            if entry_day < max_idx:
                 daily_big[entry_day] += daily_inflow
 
             # Day 21...: 小支
-            full_doses = int(np.floor(X).item() if hasattr(X, 'item') else np.floor(X))
-            remainder = X - full_doses
+            full_doses = int(np.floor(real_X)) # 使用转换后的 real_X
+            remainder = real_X - full_doses
             first_small_day = entry_day + CYCLE_DAYS
 
             for k in range(full_doses):
                 dose_day = first_small_day + k * CYCLE_DAYS
-                if dose_day < total_days:
+                if dose_day < max_idx: # 【修复3】使用 max_idx 检查
                     daily_small[dose_day] += daily_inflow
             if remainder > 0:
                 dose_day = first_small_day + full_doses * CYCLE_DAYS
-                if dose_day < total_days:
+                if dose_day < max_idx: # 【修复3】使用 max_idx 检查
                     daily_small[dose_day] += daily_inflow * remainder
 
     # --- 转新患者逻辑 ---
@@ -95,25 +103,28 @@ def simulate_sales_continuous(pure_new_list, trans_new_list, X, Y, days_config=D
         for d in range(days_in_m):
             entry_day = start_day_m + d
 
-            full_doses = int(np.floor(Y).item() if hasattr(Y, 'item') else np.floor(Y))
-            remainder = Y - full_doses
+            full_doses = int(np.floor(real_Y)) # 使用转换后的 real_Y
+            remainder = real_Y - full_doses
             first_small_day = entry_day 
 
             for k in range(full_doses):
                 dose_day = first_small_day + k * CYCLE_DAYS
-                if dose_day < total_days:
+                if dose_day < max_idx: # 【修复3】使用 max_idx 检查
                     daily_small[dose_day] += daily_inflow
             if remainder > 0:
                 dose_day = first_small_day + full_doses * CYCLE_DAYS
-                if dose_day < total_days:
+                if dose_day < max_idx: # 【修复3】使用 max_idx 检查
                     daily_small[dose_day] += daily_inflow * remainder
 
     # 汇总月度数据
     monthly_big = []
     monthly_small = []
     for start, end in month_ranges:
-        monthly_big.append(np.sum(daily_big[start:end]))
-        monthly_small.append(np.sum(daily_small[start:end]))
+        # 这里也要防止 end 超过数组长度 (虽然通常不会)
+        safe_end = min(end, max_idx)
+        safe_start = min(start, max_idx)
+        monthly_big.append(np.sum(daily_big[safe_start:safe_end]))
+        monthly_small.append(np.sum(daily_small[safe_start:safe_end]))
 
     return np.array(monthly_big), np.array(monthly_small)
 
@@ -217,13 +228,16 @@ if data_loaded:
         if st.button("开始拟合求解"):
             with st.spinner("正在寻找最佳参数..."):
                 def objective(x_val):
-                    y_val = x_val * ratio
+                    # 【新增】确保输入是标量数字
+                    current_x = x_val[0] if isinstance(x_val, np.ndarray) else x_val
+                    
+                    y_val = current_x * ratio
                     # 仅跑2025年12个月
                     _, pred_small = simulate_sales_continuous(
-                        pure_new_25, trans_new_25, x_val, y_val, 
+                        pure_new_25, trans_new_25, current_x, y_val, # 注意这里传 current_x
                         days_config=DAYS_2025, month_ranges=MONTH_RANGES_25
                     )
-
+                
                     if fit_mode == "全年总量拟合最准":
                         return abs(np.sum(pred_small) - np.sum(actual_small_25))
                     else:
