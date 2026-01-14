@@ -95,7 +95,7 @@ def simulate_sales_continuous(pure_new_list, trans_new_list, X, Y, days_config=D
         for d in range(days_in_m):
             entry_day = start_day_m + d
 
-            full_doses = int(np.floor(Y))
+            full_doses = int(np.floor(Y).item() if hasattr(Y, 'item') else np.floor(Y))
             remainder = Y - full_doses
             first_small_day = entry_day 
 
