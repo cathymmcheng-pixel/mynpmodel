@@ -70,7 +70,7 @@ def simulate_sales_continuous(pure_new_list, trans_new_list, X, Y, days_config=D
                 daily_big[entry_day] += daily_inflow
 
             # Day 21...: 小支
-            full_doses = int(np.floor(X))
+            full_doses = int(np.floor(X).item() if hasattr(X, 'item') else np.floor(X))
             remainder = X - full_doses
             first_small_day = entry_day + CYCLE_DAYS
 
